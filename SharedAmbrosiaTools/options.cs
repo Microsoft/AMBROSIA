@@ -217,7 +217,7 @@ namespace Ambrosia
 				const string minWidth = ".-";
 				if (curWidth < minWidth.Length)
 					throw new ArgumentOutOfRangeException ("widths",
-							string.Format ("Element must be >= {0}, was {1}.", minWidth.Length, curWidth));
+							$"Element must be >= {minWidth.Length}, was {curWidth}.");
 				return curWidth;
 			}
 			// no more elements, use the last element.
@@ -427,7 +427,7 @@ namespace Ambrosia
 						"maxValueCount");
 			if (this.type == OptionValueType.None && maxValueCount > 1)
 				throw new ArgumentException (
-						string.Format ("Cannot provide maxValueCount of {0} for OptionValueType.None.", maxValueCount),
+						$"Cannot provide maxValueCount of {maxValueCount} for OptionValueType.None.",
 						"maxValueCount");
 			if (Array.IndexOf (names, "<>") >= 0 && 
 					((names.Length == 1 && this.type != OptionValueType.None) ||
@@ -529,7 +529,7 @@ namespace Ambrosia
 
 			if (count <= 1 && seps.Count != 0)
 				throw new ArgumentException (
-						string.Format ("Cannot provide key/value separators for Options taking {0} value(s).", count),
+						$"Cannot provide key/value separators for Options taking {count} value(s).",
 						"prototype");
 			if (count > 1) {
 				if (seps.Count == 0)
@@ -551,14 +551,14 @@ namespace Ambrosia
 					case '{':
 						if (start != -1)
 							throw new ArgumentException (
-									string.Format ("Ill-formed name/value separator found in \"{0}\".", name),
+									$"Ill-formed name/value separator found in \"{name}\".",
 									"prototype");
 						start = i+1;
 						break;
 					case '}':
 						if (start == -1)
 							throw new ArgumentException (
-									string.Format ("Ill-formed name/value separator found in \"{0}\".", name),
+									$"Ill-formed name/value separator found in \"{name}\".",
 									"prototype");
 						seps.Add (name.Substring (start, i-start));
 						start = -1;
@@ -571,7 +571,7 @@ namespace Ambrosia
 			}
 			if (start != -1)
 				throw new ArgumentException (
-						string.Format ("Ill-formed name/value separator found in \"{0}\".", name),
+						$"Ill-formed name/value separator found in \"{name}\".",
 						"prototype");
 		}
 
@@ -1218,8 +1218,7 @@ namespace Ambrosia
 				if (p.Hidden)
 					continue;
 
-				Category c = p as Category;
-				if (c != null) {
+				if (p is Category c) {
 					WriteDescription (o, p.Description, "", 80, 80);
 					continue;
 				}

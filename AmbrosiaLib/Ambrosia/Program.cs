@@ -1424,10 +1424,7 @@ namespace Ambrosia
                     _myAmbrosia.OnError(5, "Committer is trying to switch log streams when awake");
                 }
                 // Release resources and lock on the old file
-                if (_logStream != null)
-                {
-                    _logStream.Dispose();
-                }
+                _logStream?.Dispose();
                 _logStream = newLogStream;
             }
 
