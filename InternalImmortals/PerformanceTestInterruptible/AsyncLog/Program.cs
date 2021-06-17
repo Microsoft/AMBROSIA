@@ -1,5 +1,7 @@
 ﻿using Ambrosia;
 using System;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
@@ -23,6 +25,12 @@ namespace AsyncLog
         }
     }
 
+    public struct VectorTimestamp
+    {
+        public ValueTuple<long, long>[] payload;
+        public int length;
+    }
+
     public enum SleepStatus
     {
         ASLEEP = 0,
@@ -44,6 +52,59 @@ namespace AsyncLog
         Task<ValueTuple<byte[], int>> BeforeEpochAsync(LSN lsn);
         Task AfterEpochAsync(LSN lsn);
         Task Commit(LSN lsn);
+    }
+
+
+    internal static class Constants
+    {
+        // Size of cache line in bytes
+        public const int kCacheLineBytes = 64;
+        public const long kHeaderLockMask = 0x000000001;
+        public const int kHeaderLockShift = 1;
+    }
+
+    // Struct to manage payload and vector timestamp buffers as one atomic unit.
+    [StructLayout(LayoutKind.Explicit, Size = Constants.kCacheLineBytes)]
+    internal struct LogLengths
+    {
+        [FieldOffset(0)]
+        public long header;
+        [FieldOffset(8)]
+        public long payloadLength;
+        [FieldOffset(16)]
+        public long timestampLength;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ValueTuple<long, long, long> AtomicRead()
+        {
+            long beforeHeader = 0x1;
+            long afterHeader = 0x1;
+            long curPayload = -1;
+            long curTimestamp = -1;
+            do
+            {
+                beforeHeader = Interlocked.Read(ref header);
+                curPayload = payloadLength;
+                curTimestamp = timestampLength;
+                afterHeader = Interlocked.Read(ref header);
+            } while ((beforeHeader == afterHeader) && ((beforeHeader & Constants.kHeaderLockMask) == 0));
+
+            return ValueTuple.Create<long, long, long>((beforeHeader >> Constants.kHeaderLockShift), curPayload, curTimestamp);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void AtomicWrite(long newHeader, long newPayloadLen, long newTimestampLen)
+        {
+            long lockedNewHeader = ((newHeader << Constants.kHeaderLockShift) | Constants.kHeaderLockMask);
+            long unlockedNewHeader = (newHeader << Constants.kHeaderLockShift);
+
+            long oldHeader = Interlocked.Exchange(ref header, lockedNewHeader);
+            Debug.Assert(((oldHeader >> Constants.kHeaderLockShift) + 1) == newHeader && ((oldHeader & Constants.kHeaderLockMask) == 0));
+            payloadLength = newPayloadLen;
+            timestampLength = newTimestampLen;
+            oldHeader = Interlocked.Exchange(ref header, unlockedNewHeader);
+            Debug.Assert(oldHeader == lockedNewHeader);
+        }
     }
 
     public class AmbrosiaLog : ILog
@@ -334,7 +395,12 @@ namespace AsyncLog
             }
         }
 
-        public async Task<LSN> AppendAsync(byte[] payload, int length, LSN[] dependencies, int num_dependencies)
+        public async Task<VectorTimestamp> GetVectorTimestamp(long localIndex)
+        {
+            Debug.Assert(false);
+        }
+
+        public async Task<LSN> AppendAsync(byte[] payload, int length, VectorTimestamp dependencies)
         {
             while (true)
             {
