@@ -2753,6 +2753,11 @@ namespace Ambrosia
             }
         }
 
+        private bool CheckGrainID(int grainID)
+        {
+            return true;
+        }
+
         private async Task ReplayAsync(ILogReader replayStream, MachineState state)
         {
             var tempBuf = new byte[100];
@@ -3037,9 +3042,158 @@ namespace Ambrosia
                         }
                     }
                 }
+
+                // To Do (Sekwon)
+                // CHeck if the gainId exists in the mapping
+                // Filter out RPC messages that have grainId not existing in the mapping table
+                var tempBufStream = new MemoryStream(tempBuf);
+                tempBufStream.Position = 0;
+                var filteredBuf = new byte[commitSize];
+                long filteredBufOffset = 0;
+
+                int firstByte = -1;
+                while (tempBufStream.Position < commitSize)
+                {
+                    long startPositionOfRecord = tempBufStream.Position;
+                    long startOffsetOfFilter = filteredBufOffset;
+
+                    var totalRecordSize = tempBufStream.ReadInt();
+                    totalRecordSize += (int)(tempBufStream.Position - startPositionOfRecord);
+                    firstByte = tempBufStream.ReadByte();
+                    if (firstByte == AmbrosiaRuntimeLBConstants.RPCByte)
+                    {
+                        Console.WriteLine("[Sekwon] This is RPCByte {0}", firstByte);
+                        var returnByte = tempBufStream.ReadByte();
+                        var methodByte = tempBufStream.ReadInt();
+                        var rpctypeByte = tempBufStream.ReadByte();
+                        var grainIdByte = tempBufStream.ReadInt();
+
+                        tempBufStream.Position += (totalRecordSize - (tempBufStream.Position - startPositionOfRecord));
+
+                        if (CheckGrainID(grainIdByte))
+                        {
+                            Buffer.BlockCopy(tempBuf, (int)startPositionOfRecord, filteredBuf, (int)filteredBufOffset, (int)(tempBufStream.Position - startPositionOfRecord));
+                            filteredBufOffset += (tempBufStream.Position - startPositionOfRecord);
+                        }
+                        else
+                        {
+                            Console.WriteLine("[Sekwon] RPC not involved in the range of given shards {0}", grainIdByte);
+                        }
+                        Console.WriteLine("[Sekwon] commitSize = {0}, tempBufStream.Position = {1}, totalRecordSize = {2}, filteredBufOffset = {3}", commitSize, tempBufStream.Position, totalRecordSize, filteredBufOffset);
+                    }
+                    else if (firstByte == AmbrosiaRuntimeLBConstants.RPCBatchByte || firstByte == AmbrosiaRuntimeLBConstants.CountReplayableRPCBatchByte)
+                    {
+                        if (firstByte == AmbrosiaRuntimeLBConstants.RPCBatchByte)
+                            Console.WriteLine("[Sekwon] This is RPCBatchByte {0}", firstByte);
+                        else
+                            Console.WriteLine("[Sekwon] This is CountReplayableRPCBatchByte {0}", firstByte);
+
+                        long startPositionOfRPC = 0;
+                        var numberOfRPCs = tempBufStream.ReadInt();
+                        Console.WriteLine("[Sekwon] number of RPCs = {0}", numberOfRPCs);
+
+                        if (firstByte == AmbrosiaRuntimeLBConstants.CountReplayableRPCBatchByte)
+                        {
+                            var numReplayableRPCs = tempBufStream.ReadInt();
+                            Console.WriteLine("[Sekwon] number of replayable RPCs = {0}", numReplayableRPCs);
+                        }
+
+                        int validNumOfRPCs = 0;
+                        for (int i = 0; i < numberOfRPCs; i++)
+                        {
+                            var lengthOfRPC = tempBufStream.ReadInt();
+                            //Console.WriteLine("[Sekwon] Length of RPC message = {0}", lengthOfRPC);
+
+                            var startOffset = tempBufStream.Position;
+                            //Console.WriteLine("[Sekwon] Start offset = {0}", startOffset);
+
+                            var typeOfRPC = tempBufStream.ReadByte();
+                            //Console.WriteLine("[Sekwon] Type of RPC = {0}", typeOfRPC);
+
+                            var returnByte = tempBufStream.ReadByte();
+                            //Console.WriteLine("[Sekwon] Return byte = {0}", returnByte);
+
+                            var methodByte = tempBufStream.ReadInt();
+                            //Console.WriteLine("[Sekwon] Method byte = {0}", methodByte);
+
+                            var rpctypeByte = tempBufStream.ReadByte();
+                            //Console.WriteLine("[Sekwon] RPC Type = {0}", rpctypeByte);
+
+                            var grainIdByte = tempBufStream.ReadInt();
+                            //Console.WriteLine("[Sekwon] Grain ID = {0}", grainIdByte);
+
+                            var endOffset = tempBufStream.Position;
+                            //Console.WriteLine("[Sekwon] End offset = {0}", endOffset);
+
+                            tempBufStream.Position += (((long)lengthOfRPC) - (endOffset - startOffset));
+                            //Console.WriteLine("[Sekwon] Buffer offset = {0}", tempBufStream.Position);
+
+                            if (CheckGrainID(grainIdByte))
+                            {
+                                // Copy RPC messages involved in the shard membership into the new temporal buffer
+                                if (i == 0)
+                                {
+                                    Buffer.BlockCopy(tempBuf, (int)startPositionOfRecord, filteredBuf, (int)filteredBufOffset, (int)(tempBufStream.Position - startPositionOfRecord));
+                                    filteredBufOffset += (tempBufStream.Position - startPositionOfRecord);
+                                    startPositionOfRPC = tempBufStream.Position;
+                                }
+                                else
+                                {
+                                    Buffer.BlockCopy(tempBuf, (int)startPositionOfRPC, filteredBuf, (int)filteredBufOffset, (int)(tempBufStream.Position - startPositionOfRPC));
+                                    filteredBufOffset += (tempBufStream.Position - startPositionOfRPC);
+                                    startPositionOfRPC = tempBufStream.Position;
+                                }
+
+                                validNumOfRPCs++;
+                            }
+                            else
+                            {
+                                Console.WriteLine("[Sekwon] RPC not involved in the range of given shards {0}", grainIdByte);
+                                startPositionOfRPC = tempBufStream.Position;
+                            }
+                        }
+                        Console.WriteLine("[Sekwon] commitSize = {0}, tempBufStream.Position = {1}, totalRecordSize = {2}, filteredBufOffset = {3}", commitSize, tempBufStream.Position, totalRecordSize, filteredBufOffset);
+
+                        if (validNumOfRPCs != numberOfRPCs)
+                        {
+                            int cursor_ = (int)startOffsetOfFilter;
+                            int newTotalRecordSize = (int)(filteredBufOffset - startOffsetOfFilter) - StreamCommunicator.IntSize(totalRecordSize);
+                            filteredBuf.WriteInt(cursor_, newTotalRecordSize);
+                            cursor_ += (StreamCommunicator.IntSize(totalRecordSize) + 1);
+                            filteredBuf.WriteInt(cursor_, validNumOfRPCs);
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("[Sekwon] Not classified into any RPC types {0}", firstByte);
+                        break;
+                    }
+                }
+
                 // Do the actual work on the local service
-                _localServiceSendToStream.Write(headerBuf, 0, Committer.HeaderSize);
-                _localServiceSendToStream.Write(tempBuf, 0, commitSize);
+                if (firstByte == AmbrosiaRuntimeLBConstants.RPCByte || 
+                    firstByte == AmbrosiaRuntimeLBConstants.RPCBatchByte || 
+                    firstByte == AmbrosiaRuntimeLBConstants.CountReplayableRPCBatchByte)
+                {
+                    if (commitSize != (int)filteredBufOffset)
+                    {
+                        commitSize = (int)filteredBufOffset;
+                        int newCommitSize = commitSize + Committer.HeaderSize;
+                        headerBuf[4] = (byte)(newCommitSize & 0xFF);
+                        headerBuf[5] = (byte)((newCommitSize >> 0x8) & 0xFF);
+                        headerBuf[6] = (byte)((newCommitSize >> 0x10) & 0xFF);
+                        headerBuf[7] = (byte)((newCommitSize >> 0x18) & 0xFF);
+                    }
+
+                    _localServiceSendToStream.Write(headerBuf, 0, Committer.HeaderSize);
+                    _localServiceSendToStream.Write(filteredBuf, 0, commitSize);
+                }
+                else
+                {
+                    _localServiceSendToStream.Write(headerBuf, 0, Committer.HeaderSize);
+                    _localServiceSendToStream.Write(tempBuf, 0, commitSize);
+                }
+
                 // Trim the outputs. Should clean as aggressively as during normal operation
                 foreach (var kv in trimDict)
                 {

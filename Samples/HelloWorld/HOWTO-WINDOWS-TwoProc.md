@@ -32,7 +32,7 @@ For the purpose of this tutorial, we'll assume the following parameters:
 
 ### Storage Connection String
 
-Ambrosia uses an Azure table to maintain and discover information about your application's immortals and their status. To access this information, all Ambrosia tools and libraries need a connection string to an Azure storage account stored in the environment variable `%AZURE_STORAGE_CONN_STRING%`. To run this sample, you must therefore create an Azure Storage account if you don't already have one, and set the environment variable to contain its connection string.
+Ambrosia uses an Azure table to maintain and discover information about your application's immortals and their status. To access this information, all Ambrosia tools and libraries need a connection string to an Azure storage account stored in the environment variable `%AZURE_STORAGE_CONN_STRING%`. To run this sample, you must therefore create an Azure Storage account if you don't already have one, and set the environment variable to contain its connection string (Please refer to following [link](https://docs.microsoft.com/en-us/azure/storage/common/storage-configure-connection-string) for more details).
 
 ### Registering the Immortal instances
 

@@ -597,6 +597,11 @@ namespace Ambrosia
                                         _cursor += IntSize(methodId);
                                         var rpcType = (RpcTypes.RpcType)_inputFlexBuffer.Buffer[_cursor++];
 
+                                        // Read grainId (Sekwon)
+                                        var grainId = _inputFlexBuffer.Buffer.ReadBufferedInt(_cursor);
+                                        _cursor += IntSize(grainId);
+                                        //Console.WriteLine("[Sekwon] Received grainId: {0}", grainId);
+
                                         string senderOfRPC = null;
                                         long sequenceNumber = 0;
 
@@ -985,6 +990,9 @@ namespace Ambrosia
 
             int optionalPartSize = 0;
 
+            // Grain ID (Sekwon)
+            int grainID = 133;
+
             if (!rpcType.IsFireAndForget())
             {
                 newSequenceNumber = Interlocked.Increment(ref this.CurrentSequenceNumber);
@@ -1003,6 +1011,7 @@ namespace Ambrosia
                 + 1 // size of the return-value flag byte
                 + IntSize(methodIdentifier) // size of the method identifier
                 + 1 // size of the fire-and-forget value
+                + IntSize(grainID) // size of the grainID value (Sekwon)
                 + optionalPartSize
                 ;
 
@@ -1034,6 +1043,9 @@ namespace Ambrosia
             writablePage.curLength += localBuffer.WriteInt(writablePage.curLength, methodIdentifier);
             // Write whether this is fire-and-forget
             localBuffer[writablePage.curLength++] = (byte)rpcType;
+
+            // Write a random grainID (Sekwon)
+            writablePage.curLength += localBuffer.WriteInt(writablePage.curLength, grainID);
 
             // Write optional part depending on whether it is fire-and-forget
             if (!rpcType.IsFireAndForget())
